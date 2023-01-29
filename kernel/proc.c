@@ -273,6 +273,8 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  np->trace_mask = p->trace_mask;
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -692,4 +694,15 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE
+uint64 unused_proc(){
+  uint64 i, res = 0;
+  for ( i = 0; i < NPROC; i++)
+  {
+    if(proc[i].state != UNUSED)
+      res++; 
+  }
+  return res;
 }

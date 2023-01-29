@@ -6,6 +6,22 @@
 #include "proc.h"
 #include "syscall.h"
 #include "defs.h"
+#include "sysinfo.h"
+
+uint64
+sys_info(void)
+ {
+  uint64 freemem = free_memory(),nproc = unused_proc(), addr;
+  struct sysinfo p;
+  p.freemem = freemem;
+  p.nproc = nproc;
+  
+  argaddr(0,&addr);
+  
+  if(copyout(myproc()->pagetable,addr,(char*)&p,sizeof(p)) < 0)
+    return -1;
+  return 0;
+ }
 
 // Fetch the uint64 at addr from the current process.
 int
@@ -104,6 +120,7 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_trace(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,17 +144,51 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo]   sys_info,
+};
+
+const char* sys_call_names[] = {
+"fork",
+"exit",
+"wait",
+"pipe",
+"read",
+"kill",
+"exec",
+"fstat",
+"chdir",
+"dup",
+"getpid",
+"sbrk",
+"sleep",
+"uptime",
+"open",
+"write",
+"mknod",
+"unlink",
+"link",
+"mkdir",
+"close",
+"trace",
+"sysinfo",
 };
 
 void
 syscall(void)
 {
-  int num;
+  int num, trac_mask;
   struct proc *p = myproc();
-
+  
   num = p->trapframe->a7;
+  // trac_mask = p->trace_mask; 不应该在这里设置,这里trace自己的mask还没有更新,追踪不到自己;
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     p->trapframe->a0 = syscalls[num]();
+    // 408: syscall fork -> 409
+    trac_mask = p->trace_mask;
+    if(trac_mask & (1 << num)){
+      printf("%d: syscall %s -> %d\n",p->pid,sys_call_names[num-1],p->trapframe->a0);
+    }
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
