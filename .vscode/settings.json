@@ -66,7 +66,6 @@
         "fs.h": "c",
         "stat.h": "c",
         "param.h": "c",
-        "*.s": "c",
         "proc.h": "c",
         "spinlock.h": "c",
         "defs.h": "c",
