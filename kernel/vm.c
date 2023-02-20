@@ -88,6 +88,51 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   return &pagetable[PX(0, va)];
 }
 
+
+
+
+
+void printDot(int level){
+  for (int i = 0; i < level; i++)
+  {
+    if(i) printf(" ");
+    printf("..");
+  }
+}
+
+void dfs(int level,pagetable_t pagetable){
+  for (int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      // printf("\n");
+      printDot(level+1);
+      printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        dfs(level+1,(pagetable_t)PTE2PA(pte));
+      }
+    }
+  }
+}
+
+void vmprint(pagetable_t pagetable){
+  printf("page table %p\n",pagetable);
+  dfs(0,pagetable);
+}
+
+// page table 0x0000000087f6e000
+// ..0: pte 0x0000000021fda801 pa 0x0000000087f6a000
+// .. ..0: pte 0x0000000021fda401 pa 0x0000000087f69000
+// .. .. ..0: pte 0x0000000021fdac1f pa 0x0000000087f6b000
+// .. .. ..1: pte 0x0000000021fda00f pa 0x0000000087f68000
+// .. .. ..2: pte 0x0000000021fd9c1f pa 0x0000000087f67000
+// ..255: pte 0x0000000021fdb401 pa 0x0000000087f6d000
+// .. ..511: pte 0x0000000021fdb001 pa 0x0000000087f6c000
+// .. .. ..510: pte 0x0000000021fdd807 pa 0x0000000087f76000
+// .. .. ..511: pte 0x0000000020001c0b pa 0x0000000080007000
+  
+
+
+
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
@@ -205,6 +250,38 @@ uvmcreate()
     return 0;
   memset(pagetable, 0, PGSIZE);
   return pagetable;
+}
+
+pagetable_t
+uvmKernelPagetable()
+{
+  pagetable_t pagetable;
+  pagetable = (pagetable_t) kalloc();
+  if(pagetable == 0)
+    return 0;
+  memset(pagetable,0,PGSIZE);  
+  
+  // uart registers
+  mappages(pagetable,UART0,UART0, PGSIZE,PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  mappages(pagetable,VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  mappages(pagetable,CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  mappages(pagetable,PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  mappages(pagetable,KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  mappages(pagetable,(uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  mappages(pagetable,TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);   
 }
 
 // Load the user initcode into address 0 of pagetable,
