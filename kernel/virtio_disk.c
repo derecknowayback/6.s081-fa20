@@ -20,6 +20,8 @@
 // the address of virtio mmio register r.
 #define R(r) ((volatile uint32 *)(VIRTIO0 + (r)))
 
+extern pagetable_t kernel_pagetable;
+
 static struct disk {
  // memory for virtio descriptors &c for queue 0.
  // this is a global instead of allocated because it must
@@ -203,6 +205,7 @@ virtio_disk_rw(struct buf *b, int write)
 
   // buf0 is on a kernel stack, which is not direct mapped,
   // thus the call to kvmpa().
+  // vmprint(kernel_pagetable);
   disk.desc[idx[0]].addr = (uint64) kvmpa((uint64) &buf0);
   disk.desc[idx[0]].len = sizeof(buf0);
   disk.desc[idx[0]].flags = VRING_DESC_F_NEXT;

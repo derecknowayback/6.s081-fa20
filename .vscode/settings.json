@@ -1,8 +1,9 @@
 {
     "files.associations": {
+        ".h": "c",
         "user.h": "c",
         "types.h": "c",
-        "riscv.h":"c",
+        "riscv.h": "c",
         "algorithm": "c",
         "array": "c",
         "atomic": "c",
@@ -63,6 +64,9 @@
         "thread": "c",
         "cinttypes": "c",
         "typeinfo": "c",
-        "fs.h": "c"
+        "fs.h": "c",
+        "defs.h": "c",
+        "proc.h": "c",
+        "sleeplock.h": "c"
     }
 }

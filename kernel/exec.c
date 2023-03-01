@@ -49,8 +49,11 @@ exec(char *path, char **argv)
     if(ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
     uint64 sz1;
-    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
+    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0) 
       goto bad;
+    if(sz1 >= PLIC) { // 添加检测，防止程序大小超过 PLIC
+      goto bad;
+    }  
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
@@ -112,6 +115,12 @@ exec(char *path, char **argv)
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
+  // 选择清除旧的kernel页表
+  uvmunmap(p->kpageTable,0,PGROUNDUP(oldsz) / PGSIZE,0);
+  printf("exec开始\n");
+  copytable(pagetable,p->kpageTable,0,sz);
+  printf("exec结束\n");
+
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);

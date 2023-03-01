@@ -20,6 +20,8 @@ static void wakeup1(struct proc *chan);
 static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
+extern char etext[]; // kernel.ld sets this to end of kernel code.
+extern pagetable_t kernel_pagetable;
 
 // initialize the proc table at boot time.
 void
@@ -30,16 +32,6 @@ procinit(void)
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
   }
   kvminithart();
 }
@@ -120,9 +112,29 @@ found:
     release(&p->lock);
     return 0;
   }
+  
 
-  // 一个内核页表的copy
-  p->kpageTable = 0;
+  p->kpageTable = proc_kerneltable();
+  if(p->kpageTable == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // 接下来要在kernelPagetable上映射自己的内核栈
+  // Allocate a page for the process's kernel stack.
+  // Map it high in memory, followed by an invalid
+  // guard page.
+  char *pa = kalloc();
+  if(pa == 0)
+      panic("kalloc");
+  uint64 va = KSTACK((int)0);
+  ukvmmap(p->kpageTable,va,(uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
+  // printf("在allocproc中,这是分配的内核页表:\n");
+  // vmprint(p->kpageTable);
+
 
   // Set up new context to start executing at forkret,
   // which returns to user space.
@@ -145,6 +157,18 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+
+  // 先释放内核栈再释放内核页表, 因为我们需要内核页表
+  if(p->kstack)
+    uvmunmap(p->kpageTable, p->kstack, 1, 1);
+  p->kstack = 0;
+
+  if(p->kpageTable)
+    proc_freeKpagetable(p->kpageTable);
+  p->kpageTable = 0;
+
+
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -190,35 +214,31 @@ proc_pagetable(struct proc *p)
 
 
 pagetable_t
-proc_kpagetable(struct proc *p)
+proc_kerneltable()
 {
-  pagetable_t pagetable;
-
-  // An empty page table.
-  pagetable = uvmcreate();
-  if(pagetable == 0)
+  pagetable_t kpagetable;
+  kpagetable = (pagetable_t) kalloc();
+  if(kpagetable == 0)
     return 0;
+  memset(kpagetable, 0, PGSIZE);
+  
+  ukvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  
+  ukvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  
+  // ukvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  
+  ukvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  
+  ukvmmap(kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  
+  ukvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  
+  ukvmmap(kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 
-  // map the trampoline code (for system call return)
-  // at the highest user virtual address.
-  // only the supervisor uses it, on the way
-  // to/from user space, so not PTE_U.
-  if(mappages(pagetable, TRAMPOLINE, PGSIZE,
-              (uint64)trampoline, PTE_R | PTE_X) < 0){
-    uvmfree(pagetable, 0);
-    return 0;
-  }
-
-  // map the trapframe just below TRAMPOLINE, for trampoline.S.
-  if(mappages(pagetable, TRAPFRAME, PGSIZE,
-              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
-    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-    uvmfree(pagetable, 0);
-    return 0;
-  }
-
-  return pagetable;
+  return kpagetable;   
 }
+
 
 // Free a process's page table, and free the
 // physical memory it refers to.
@@ -227,7 +247,25 @@ proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  // printf("U-page解除映射之后:\n");
+  // vmprint(pagetable);
   uvmfree(pagetable, sz);
+}
+
+
+void proc_freeKpagetable(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+      // this PTE points to a lower-level page table.
+      uint64 child = PTE2PA(pte);
+      proc_freeKpagetable((pagetable_t)child);
+      pagetable[i] = 0;
+    } 
+  }
+  kfree((void*)pagetable);
 }
 
 // a user program that calls exec("/init")
@@ -255,6 +293,9 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  printf("userinit开始\n");
+  copytable(p->pagetable, p->kpageTable, 0, p->sz); // 同步程序内存映射到进程内核页表中
+  printf("userinit结束\n");
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -281,8 +322,15 @@ growproc(int n)
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    printf("growproc开始\n");
+    if(copytable(p->pagetable,p->kpageTable,p->sz,n) != 0){
+      uvmdealloc(p->kpageTable,sz,p->sz);
+      return -1; 
+    }
+    printf("growproc结束\n");
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uvmdealloc(p->pagetable, sz, sz + n);
+    sz = deallocNoFreePa(p->kpageTable,sz,sz + n);
   }
   p->sz = sz;
   return 0;
@@ -308,6 +356,14 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+
+  // 从父节点的kernel页表copy过来
+  if(copytable(np->pagetable,np->kpageTable,0,p->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+
   np->sz = p->sz;
 
   np->parent = p;
@@ -508,8 +564,13 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        //! \bug 暂时先在上下文切换之前改变satp
+        w_satp(MAKE_SATP(p->kpageTable)); 
+        sfence_vma();
         swtch(&c->context, &p->context);
-
+        
+        // 切换为全局内核页表
+        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -521,6 +582,8 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      // 没有running process的时候就使用kernel_pagetable
+      // kvminithart();
       asm volatile("wfi");
     }
 #else
