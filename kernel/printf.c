@@ -122,6 +122,7 @@ panic(char *s)
   printf(s);
   printf("\n");
   panicked = 1; // freeze uart output from other CPUs
+  backtrace();
   for(;;)
     ;
 }
@@ -131,4 +132,21 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+// Your backtrace should use these frame pointers to walk up the stack 
+// and print the saved return address in each stack frame.
+void backtrace()
+{
+  printf("backtrace:\n");
+  uint64 fp = r_fp();
+  uint64 end = PGROUNDUP(fp);
+  printf("fp:%p, end:%p\n",fp,end);
+  while (fp < end)
+  {
+    uint64* re_addr = (uint64*)(fp - 8);
+    printf("%p\n",*re_addr);
+    uint64 * pre_fp = (uint64*)(fp - 16);
+    fp = *pre_fp;
+  }
 }

@@ -121,6 +121,8 @@ found:
     return 0;
   }
 
+  p->call_since_last_time = 0;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));

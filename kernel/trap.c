@@ -29,6 +29,11 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+
+void copy_trap_frame(struct trapframe* src,struct trapframe* dst){
+  memmove(dst,src,sizeof(struct trapframe));  
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -49,7 +54,7 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
-  
+
   if(r_scause() == 8){
     // system call
 
@@ -66,6 +71,9 @@ usertrap(void)
 
     syscall();
   } else if((which_dev = devintr()) != 0){
+    // devintr() returns 2 if timer interrupt,
+    // 1 if other device,
+    // 0 if not recognized.
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
@@ -77,9 +85,21 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2){
+    if(p->interval != 0){
+      p->call_since_last_time++;
+      if(p->call_since_last_time == p->interval && p->retrant_call == 0){
+        // 保存现场
+        copy_trap_frame(p->trapframe,&p->sigframe);
+        // ((void(*)())p->handler)();
+        p->trapframe->epc = (uint64)p->handler;
+        p->retrant_call = 1;
+      }
+    }
     yield();
-
+  }
+    
+  
   usertrapret();
 }
 
@@ -98,6 +118,7 @@ usertrapret(void)
 
   // send syscalls, interrupts, and exceptions to trampoline.S
   w_stvec(TRAMPOLINE + (uservec - trampoline));
+  // printf("uservec - trampoline = %d\n",(uint64)uservec - (uint64)trampoline);
 
   // set up trapframe values that uservec will need when
   // the process next re-enters the kernel.
