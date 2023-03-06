@@ -2698,7 +2698,9 @@ main(int argc, char *argv[])
     {reparent2, "reparent2"},
     {pgbug, "pgbug" },
     {sbrkbugs, "sbrkbugs" },
+
     // {badwrite, "badwrite" },
+    
     {badarg, "badarg" },
     {reparent, "reparent" },
     {twochildren, "twochildren"},
@@ -2723,6 +2725,7 @@ main(int argc, char *argv[])
     {sbrkfail, "sbrkfail"},
     {sbrkarg, "sbrkarg"},
     {validatetest, "validatetest"},
+    
     {stacktest, "stacktest"},
     {opentest, "opentest"},
     {writetest, "writetest"},

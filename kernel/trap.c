@@ -33,6 +33,35 @@ trapinithart(void)
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
 //
+
+int
+invalidva(uint64 va)
+{
+  struct proc* p = myproc(); 
+  uint64 floor = PGROUNDDOWN(va);
+  pte_t *pte;
+  return va >= p->sz || floor == p->sz || ((pte = walk(p->pagetable,va,0)) != 0 && (*pte & PTE_V) != 0);
+}
+
+void
+allocLazy(uint64 va)
+{
+  struct proc* p = myproc(); 
+  uint64 pa = (uint64)kalloc();
+  // epc应该是不变的;
+  if(pa == 0){
+    p->killed = 1;
+  }else{
+    memset((void*)pa,0,PGSIZE);
+    va = PGROUNDDOWN(va);
+    if(mappages(p->pagetable,va,PGSIZE,pa,PTE_W|PTE_U|PTE_R)){
+      kfree((void*)pa);
+      p->killed = 1;
+    }
+  }
+}
+
+
 void
 usertrap(void)
 {
@@ -67,6 +96,13 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15){
+    // 分配一个新的page
+    uint64 va = r_stval();
+    if(invalidva(va)) 
+      p->killed = 1;
+    else
+      allocLazy(va);  
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

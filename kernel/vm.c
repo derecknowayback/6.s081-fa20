@@ -156,8 +156,9 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V){
       panic("remap");
+    }
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -167,9 +168,11 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   return 0;
 }
 
+
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+int k = 0;
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
@@ -179,19 +182,26 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  // vmprint(pagetable);
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+    if((pte = walk(pagetable, a, 0)) == 0){
+      continue; // 0x400000这个页从来没有访问过,自然没有分配,所以不要管它;
+      // panic("uvmunmap: walk");
+    }
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;
+      // panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
+      k++;
     }
     *pte = 0;
   }
+  // printf("k: %d\n",k);
+  k = 0;
 }
 
 // create an empty user page table.
@@ -265,7 +275,8 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
     uvmunmap(pagetable, PGROUNDUP(newsz), npages, 1);
   }
-
+  // printf("dealloc:\n");
+  // vmprint(pagetable);
   return newsz;
 }
 
@@ -283,6 +294,10 @@ freewalk(pagetable_t pagetable)
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
     } else if(pte & PTE_V){
+      // continue;
+      // printf("\n\nerror:\n");
+      // vmprint(pagetable);freewa
+      // printf("error pte: %p\n",pte);
       panic("freewalk: leaf");
     }
   }
@@ -294,8 +309,13 @@ freewalk(pagetable_t pagetable)
 void
 uvmfree(pagetable_t pagetable, uint64 sz)
 {
+  // printf("之前\n");
+  // vmprint(pagetable);
+  // printf("\n");
+  // printf("总共有%d页\n",PGROUNDUP(sz)/PGSIZE);
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+  // vmprint(pagetable);
   freewalk(pagetable);
 }
 
@@ -315,9 +335,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;
+      // panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
+      // panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -356,6 +378,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  if(!invalidva(dstva))
+    allocLazy(dstva);
+
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
@@ -380,6 +405,9 @@ int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
+
+  if(!invalidva(srcva))
+    allocLazy(srcva);
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -439,4 +467,38 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+
+void printDot(int level){
+  for (int i = 0; i < level; i++)
+  {
+    if(i) printf(" ");
+    printf("..");
+  }
+}
+void dfs(int level,pagetable_t pagetable){
+  // int cnt = 0;
+  for (int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V){
+      // cnt++;
+      // printf("\n");
+      if(level == 2){
+        printDot(level+1);
+        printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+      }
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        dfs(level+1,(pagetable_t)PTE2PA(pte));
+      }
+    }
+  }
+  // if(level == 2)
+  //   printf("第三级页表总共有: %d个pte\n",cnt);
+}
+
+void vmprint(pagetable_t pagetable){
+  printf("page table %p\n",pagetable);
+  dfs(0,pagetable);
+  printf("\n\n");
 }

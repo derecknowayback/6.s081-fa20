@@ -240,16 +240,19 @@ growproc(int n)
 {
   uint sz;
   struct proc *p = myproc();
-
+  // printf("growproc: %d,\n",n);
   sz = p->sz;
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    if(-n > sz)  
+      sz = uvmdealloc(p->pagetable, sz, 0);
+    else
+      sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-  p->sz = sz;
+  // p->sz = sz;
   return 0;
 }
 
@@ -273,6 +276,7 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  
   np->sz = p->sz;
 
   np->parent = p;

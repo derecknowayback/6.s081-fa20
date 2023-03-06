@@ -41,15 +41,21 @@ sys_wait(void)
 uint64
 sys_sbrk(void)
 {
-  int addr;
+  int addr = myproc()->sz;
   int n;
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
-  return addr;
+
+  // 如果是负数,我们就需要shrink一下内寸;
+  if(n < 0){
+    growproc(n);
+  }
+  myproc()->sz += n;
+  
+  // if(growproc(n) < 0)
+  //   return -1;
+  return addr; // return the old size.
 }
 
 uint64
