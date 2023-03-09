@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        ".h": "c",
         "user.h": "c",
         "types.h": "c",
         "algorithm": "c",
@@ -62,6 +63,7 @@
         "thread": "c",
         "cinttypes": "c",
         "typeinfo": "c",
-        "fs.h": "c"
+        "fs.h": "c",
+        "defs.h": "c"
     }
 }

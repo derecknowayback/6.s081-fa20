@@ -10,7 +10,7 @@ struct spinlock tickslock;
 uint ticks;
 
 extern char trampoline[], uservec[], userret[];
-
+extern struct spinlock reflock;
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
@@ -29,10 +29,72 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
-//
-// handle an interrupt, exception, or system call from user space.
-// called from trampoline.S
-//
+
+int
+cow(uint64 va)
+{
+  // acquire(&reflock);
+  // struct proc* p = myproc();
+  // pte_t* pte = walk(p->pagetable,va,0);
+  // uint64 pa = PTE2PA(*pte);
+  // int cnt = getRef(pa);
+  // if(cnt == 1){
+  //   // 引用计数为1，那直接修改pte就好了;
+  //   *pte = ((*pte) & ~PTE_COW) | PTE_W;
+  // }else if(cnt > 1){
+  //   // 引用计数 > 1的话,就要分配新的页
+  //   uint64 newpa = (uint64)kalloc();
+  //   if(newpa == 0){
+  //     // p->killed = 1;
+  //     return -1;
+  //   }else{
+  //     // 先unmap
+  //     uvmunmap(p->pagetable,PGROUNDDOWN(va),1,0);
+  //     int perms = (PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W;
+  //     // 安装新的pte
+  //     mappages(p->pagetable,va,PGSIZE,newpa,perms); // 姑且也给读权限      
+  //     // 复制页面
+  //     memmove((void*)newpa,(void*)pa,PGSIZE);
+  //     // 减少原先的page的
+  //     decrementRef(pa);
+  //   }
+  // }
+  // release(&reflock);
+  // return 0;
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  if((pte = walk(p->pagetable, va, 0)) == 0)
+    panic("uvmcowcopy: walk");
+  
+  // 调用 kalloc.c 中的 kcopy_n_deref 方法，复制页
+  // (如果懒复制页的引用已经为 1，则不需要重新分配和复制内存页，只需清除 PTE_COW 标记并标记 PTE_W 即可)
+  uint64 pa = PTE2PA(*pte);
+  uint64 new = (uint64)kcopy_n_deref((void*)pa); // 将一个懒复制的页引用变为一个实复制的页
+  if(new == 0)
+    return -1;
+  
+  // 重新映射为可写，并清除 PTE_COW 标记
+  uint64 flags = (PTE_FLAGS(*pte) | PTE_W) & ~PTE_COW;
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, 1, new, flags) == -1) {
+    panic("uvmcowcopy: mappages");
+  }
+  return 0;
+}
+
+int
+isCow(uint64 va)
+{
+  struct proc* p = myproc();
+  if(va >= p->sz) return  0;
+  pte_t* pte = walk(p->pagetable,va,0);
+  if(pte == 0 || (*pte & PTE_V) == 0) return 0;
+  return (*pte & PTE_COW);
+}
+
+
+
 void
 usertrap(void)
 {
@@ -67,6 +129,9 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if((r_scause() == 13 || r_scause() == 15) && isCow(r_stval())){
+    if(cow(r_stval()))
+      p->killed = 1;
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -82,6 +147,8 @@ usertrap(void)
 
   usertrapret();
 }
+
+
 
 //
 // return to user space
@@ -217,4 +284,3 @@ devintr()
     return 0;
   }
 }
-

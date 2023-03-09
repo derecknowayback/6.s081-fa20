@@ -190,8 +190,12 @@ proc_pagetable(struct proc *p)
 void
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
+  // vmprint(pagetable);
+  // printf("1\n");
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
+  // printf("2\n");
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  // printf("3\n");
   uvmfree(pagetable, sz);
 }
 
