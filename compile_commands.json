@@ -1,0 +1,56 @@
+[
+    {
+        "arguments": [
+            "riscv64-linux-gnu-gcc",
+            "-c",
+            "-Wall",
+            "-Werror",
+            "-O",
+            "-fno-omit-frame-pointer",
+            "-ggdb",
+            "-DSOL_THREAD",
+            "-DLAB_THREAD",
+            "-mcmodel=medany",
+            "-ffreestanding",
+            "-fno-common",
+            "-nostdlib",
+            "-mno-relax",
+            "-I.",
+            "-fno-stack-protector",
+            "-fno-pie",
+            "-no-pie",
+            "-o",
+            "user/uthread.o",
+            "user/uthread.c"
+        ],
+        "directory": "/mnt/d/b_project/6.s081/labs/xv6-labs-2020",
+        "file": "user/uthread.c"
+    },
+    {
+        "arguments": [
+            "riscv64-linux-gnu-gcc",
+            "-c",
+            "-Wall",
+            "-Werror",
+            "-O",
+            "-fno-omit-frame-pointer",
+            "-ggdb",
+            "-DSOL_THREAD",
+            "-DLAB_THREAD",
+            "-mcmodel=medany",
+            "-ffreestanding",
+            "-fno-common",
+            "-nostdlib",
+            "-mno-relax",
+            "-I.",
+            "-fno-stack-protector",
+            "-fno-pie",
+            "-no-pie",
+            "-o",
+            "user/uthread_switch.o",
+            "user/uthread_switch.S"
+        ],
+        "directory": "/mnt/d/b_project/6.s081/labs/xv6-labs-2020",
+        "file": "user/uthread_switch.S"
+    }
+]
